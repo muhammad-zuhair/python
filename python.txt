@@ -1,0 +1,407 @@
+import tkinter as tk
+from tkinter import messagebox
+from PIL import Image, ImageTk
+import mysql.connector 
+from mysql.connector import connect, Error
+from datetime import datetime
+import os 
+from tkinter import Tk, Label, Entry, Button, messagebox
+import tempfile
+
+# Define color constants
+dark_color = "#262523"
+blue_color = "#0B225B" 
+text_color = "#FFFFFF"
+
+# Royal Blue
+
+# MySQL database connection
+def connect_to_database():
+    try:
+        connection = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="wai_db"
+        )
+        if connection.is_connected():
+            return connection
+    except Error as err:
+        messagebox.showerror("Database Connection Error", str(err))
+        return None
+
+# Function to handle editing an item
+def edit_entries():
+    Consumer_No = entry_Consumer_No.get()
+
+    connection = connect_to_database()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute("SELECT * FROM usage_data WHERE Consumer_No = %s", (Consumer_No,))
+            row = cursor.fetchone()
+            if row:
+                entry_Watt_No.delete(0, tk.END)
+                entry_Billing_Date.config(state='normal')
+                entry_Billing_Date.delete(0, tk.END)
+                entry_Previous_Balance.delete(0, tk.END)
+                entry_Total_Charges.config(state='normal')
+                entry_Total_Charges.delete(0, tk.END)
+
+                entry_Watt_No.insert(0, row[1])
+                entry_Billing_Date.insert(0, row[2])
+                entry_Billing_Date.config(state='readonly')
+                entry_Previous_Balance.insert(0, row[3])
+                
+                # Calculate total charges based on previous balance
+                total_charges = calculate_total_charges(float(row[3]))
+                entry_Total_Charges.insert(0, total_charges)
+                entry_Total_Charges.config(state='readonly')
+            else:
+                messagebox.showwarning("Not Found", "Consumer No not found.")
+        except Error as err:
+            messagebox.showerror("Error", str(err))
+        finally:
+            connection.close()
+
+# Function to handle updating an item
+def update_entries():
+    Consumer_No = entry_Consumer_No.get()
+    Watt_No = entry_Watt_No.get()
+    Billing_Date = entry_Billing_Date.get()
+    Previous_Balance = entry_Previous_Balance.get()
+
+    if not Consumer_No or not Watt_No or not Billing_Date or not Previous_Balance:
+        messagebox.showwarning("Input Error", "Please fill in all fields.")
+        return
+
+    try:
+        Watt_No = int(Watt_No)
+        Previous_Balance = float(Previous_Balance)
+    except ValueError:
+        messagebox.showwarning("Input Error", "Watt No and Previous Balance must be numbers.")
+        return
+
+    Total_Charges = calculate_total_charges(Previous_Balance)
+    entry_Total_Charges.config(state='normal')
+    entry_Total_Charges.delete(0, tk.END)
+    entry_Total_Charges.insert(0, Total_Charges)
+    entry_Total_Charges.config(state='readonly')
+
+    connection = connect_to_database()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                "UPDATE usage_data SET Watt_No = %s, Billing_Date = %s, Previous_Balance = %s, Total_Charges = %s WHERE Consumer_No = %s",
+                (Watt_No, Billing_Date, Previous_Balance, Total_Charges, Consumer_No)
+            )
+            connection.commit()
+            update_monthly_balance(Print_Data)
+            messagebox.showinfo("Success", "Data updated successfully!")
+            clear_entries()
+        except Error as err:
+            messagebox.showerror("Error", str(err))
+        finally:
+            connection.close()
+
+# Function to handle adding a user
+def add_user():
+    Consumer_No = entry_Consumer_No.get()
+    Watt_No = entry_Watt_No.get()
+    Billing_Date = entry_Billing_Date.get()
+    Previous_Balance = entry_Previous_Balance.get()
+
+    if not Consumer_No or not Watt_No or not Billing_Date or not Previous_Balance:
+        messagebox.showwarning("Input Error", "Please fill in all fields.")
+        return
+
+    try:
+        Watt_No = int(Watt_No)  # Ensure Watt_No is converted to integer if necessary
+        Previous_Balance = float(Previous_Balance)
+    except ValueError:
+        messagebox.showwarning("Input Error", "Watt No and Previous Balance must be numbers.")
+        return
+
+    # Calculate total charges based on previous balance
+    Total_Charges = calculate_total_charges(Previous_Balance)
+    entry_Total_Charges.config(state='normal')
+    entry_Total_Charges.delete(0, tk.END)
+    entry_Total_Charges.insert(0, Total_Charges)
+    entry_Total_Charges.config(state='readonly')
+
+    connection = connect_to_database()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO usage_data (Consumer_No, Watt_No, Billing_Date, Previous_Balance, Total_Charges) VALUES (%s, %s, %s, %s, %s)",
+                (Consumer_No, Watt_No, Billing_Date, Previous_Balance, Total_Charges)
+            )
+            connection.commit()
+            update_monthly_balance(Consumer_No)  # Update monthly balance after adding new user data
+            messagebox.showinfo("Success", "Data saved successfully!")
+            clear_entries()
+        except Error as err:
+            messagebox.showerror("Error", str(err))
+        finally:
+            connection.close()
+
+# Function to calculate total charges
+def calculate_total_charges(previous_balance):
+    monthly_charge = 150
+    total_charges = monthly_charge + previous_balance
+    return str(total_charges)
+
+# Function to clear entry fields
+def clear_entries():
+    entry_Consumer_No.delete(0, tk.END)
+    entry_Watt_No.delete(0, tk.END)
+    entry_Billing_Date.config(state='normal')
+    entry_Billing_Date.delete(0, tk.END)
+    entry_Billing_Date.insert(0, datetime.now().strftime("%Y-%m-%d"))
+    entry_Billing_Date.config(state='readonly')
+    entry_Previous_Balance.delete(0, tk.END)
+    entry_Total_Charges.config(state='normal')
+    entry_Total_Charges.delete(0, tk.END)
+    entry_Total_Charges.insert(0, "150")
+    entry_Total_Charges.config(state='readonly')
+
+# Function to print entries
+def print_entries():
+    
+    connection = connect_to_database()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute("SELECT * FROM usage_data")
+            records = cursor.fetchall()
+            
+            if record:
+                # Print each entry row-wise
+                headers = ["Consumer No", "Watt No", "Billing Date", "Previous Balance", "Total Charges"]
+                print_data = ""
+                for header, value in zip(headers, record):
+                    print_data += f"{header}: {value}\n"   
+            
+            # Prepare data for printing
+            print_data = "Consumer No\tWatt No\tBilling Date\tPrevious Balance\tTotal Charges\n"
+            print_data += "\n".join(["\t".join(map(str, record)) for record in records])
+            
+            # Write data to a temporary file
+            temp_file_path = "print_data.txt"
+            with open(temp_file_path, "w") as file:
+                file.write(print_data)
+            
+            # Print the file (this command may vary depending on the OS and printer setup)
+            os.startfile(temp_file_path, "print")
+            
+            messagebox.showinfo("Success", "Data sent to the printer!")
+        except Error as err:
+            messagebox.showerror("Error", str(err))
+        finally:
+            connection.close()
+
+# Function to print a single entry
+
+
+import os
+import tempfile
+from tkinter import messagebox
+from mysql.connector import connect, Error
+
+def connect_to_database():
+    # Replace with your actual database connection code
+    return connect(
+        host="localhost",
+        user="root",
+        password="",
+        database="wai_db"
+    )
+
+def print_entry(consumer_no):
+    connection = connect_to_database()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute("SELECT * FROM usage_data WHERE Consumer_No = %s", (consumer_no,))
+            record = cursor.fetchone()
+            
+            if record:
+                # Print each entry row-wise
+                headers = ["Consumer No", "Watt No", "Billing Date", "Previous Balance", "Total Charges"]
+                print_data = ""
+                for header, value in zip(headers, record):
+                    print_data += f"{header}: {value}\n"
+                
+                # Create a temporary file in the system's temporary directory
+                temp_file_path = tempfile.mktemp(suffix=".txt")
+                try:
+                    with open(temp_file_path, 'w') as temp_file:
+                        temp_file.write(print_data)
+
+                    # Print the file (this command may vary depending on the OS and printer setup)
+                    os.startfile(temp_file_path, "print")
+                    
+                    messagebox.showinfo("Success", "Data sent to the printer!")
+                except Exception as print_error:
+                    messagebox.showerror("Print Error", f"Failed to print the file: {print_error}")
+                finally:
+                    # Ensure the file is removed after printing
+                    if os.path.exists(temp_file_path):
+                        os.remove(temp_file_path)
+            else:
+                messagebox.showinfo("Info", "No record found for the given consumer number.")
+        except Error as err:
+            messagebox.showerror("Database Error", f"Database query failed: {str(err)}")
+        finally:
+            connection.close()
+    else:
+        messagebox.showerror("Connection Error", "Failed to connect to the database.")
+
+#end single consumer no
+# Function to handle login
+def login():
+    username = username_entry.get()
+    password = password_entry.get()
+
+    if username == "admin" and password == "0":
+        messagebox.showinfo("Success", "User login successfully!")
+        open_new_window()
+    else:
+        messagebox.showerror("Error", "Invalid Username or Password")
+#frontend second window
+# Function to open a new window
+def open_new_window():
+    global entry_Consumer_No, entry_Watt_No, entry_Billing_Date, entry_Previous_Balance, entry_Total_Charges
+
+    new_window = tk.Toplevel(root)
+    new_window.geometry("400x300")
+    new_window.title("Consumer Details")
+    new_window.configure(bg=dark_color)
+
+    # Consumer Number
+    Consumer_No_label = tk.Label(new_window, text="Consumer No:", bg=dark_color, fg=text_color, font=('Arial', 12))
+    Consumer_No_label.grid(row=0, column=0, padx=10, pady=10)
+    entry_Consumer_No = tk.Entry(new_window)
+    entry_Consumer_No.grid(row=0, column=1, padx=10, pady=10)
+
+    # Watt Number
+    Watt_No_label = tk.Label(new_window, text="Watt No:", bg=dark_color, fg=text_color, font=('Arial', 12))
+    Watt_No_label.grid(row=1, column=0, padx=10, pady=10)
+    entry_Watt_No = tk.Entry(new_window)
+    entry_Watt_No.grid(row=1, column=1, padx=10, pady=10)
+
+    # Billing Date
+    Billing_Date_label = tk.Label(new_window, text="Billing Date:", bg=dark_color, fg=text_color, font=('Arial', 12))
+    Billing_Date_label.grid(row=2, column=0, padx=10, pady=10)
+    entry_Billing_Date = tk.Entry(new_window)
+    entry_Billing_Date.insert(0, datetime.now().strftime("%Y-%m-%d"))
+    entry_Billing_Date.config(state='readonly')
+    entry_Billing_Date.grid(row=2, column=1, padx=10, pady=10)
+
+    # Previous Balance
+    Previous_Balance_label = tk.Label(new_window, text="Previous Balance:", bg=dark_color, fg=text_color, font=('Arial', 12))
+    Previous_Balance_label.grid(row=3, column=0, padx=10, pady=10)
+    entry_Previous_Balance = tk.Entry(new_window)
+    entry_Previous_Balance.grid(row=3, column=1, padx=10, pady=10)
+
+    # Total Charges
+    Total_Charges_label = tk.Label(new_window, text="Total Charges:", bg=dark_color, fg=text_color, font=('Arial', 12))
+    Total_Charges_label.grid(row=4, column=0, padx=10, pady=10)
+    entry_Total_Charges = tk.Entry(new_window)
+    entry_Total_Charges.insert(0, "150")
+    entry_Total_Charges.config(state='readonly')
+    entry_Total_Charges.grid(row=4, column=1, padx=10, pady=10)
+
+    # Buttons
+    add_button = tk.Button(new_window, text="Add ", command=add_user, bg=blue_color, fg="white", font=('Arial', 12))
+    add_button.grid(row=5, column=0, padx=10, pady=10)
+    
+    update_button = tk.Button(new_window, text="Update", command=update_entries, bg=blue_color, fg="white", font=('Arial', 12))
+    update_button.grid(row=6, column=1, padx=10, pady=10)
+
+    edit_button = tk.Button(new_window, text="Edit", command=edit_entries, bg=blue_color, fg="white", font=('Arial', 12))
+    edit_button.grid(row=5, column=1, padx=10, pady=10)
+
+   
+
+    print_button = tk.Button(new_window, text="Print All", command=print_entries, bg=blue_color, fg="white", font=('Arial', 12))
+    print_button.grid(row=6, column=0, padx=10, pady=10)
+    
+    print_single_button = tk.Button(new_window, text="Next", command=open_consumer_print_window, bg=blue_color, fg="white", font=('Arial', 12))
+    print_single_button.grid(row=5, column=2, padx=10, pady=10)
+#fronend  Third (print) window
+def open_consumer_print_window():
+    consumer_window = tk.Toplevel(root)
+    consumer_window.geometry("300x150")
+    consumer_window.title("Search Consumer No.")
+    consumer_window.configure(bg=dark_color)
+    
+    label = tk.Label(consumer_window, text="Enter Consumer No:", bg=dark_color, fg=text_color, font=('Arial', 12))
+    label.pack(pady=10)
+    
+    consumer_entry = tk.Entry(consumer_window)
+    consumer_entry.pack(pady=10)
+    
+    def handle_print():
+        consumer_no = consumer_entry.get()
+        if consumer_no:
+            print_entry(consumer_no)
+        else:
+            messagebox.showwarning("Input Error", "Please enter a consumer number.")
+    
+    print_button = tk.Button(consumer_window, text="Print", command=handle_print, bg=blue_color, fg="white", font=('Arial', 12))
+    print_button.pack(pady=10)
+
+# Function to update monthly balance for all users
+def update_monthly_balance(Consumer_No):
+    connection = connect_to_database()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute("SELECT SUM(Total_Charges) FROM usage_data WHERE Consumer_No = %s", (Consumer_No,))
+            total = cursor.fetchone()[0]
+            
+            cursor.execute("UPDATE users SET monthly_balance = %s WHERE Consumer_No = %s", (total, Consumer_No))
+            connection.commit()
+        except Error as err:
+            messagebox.showerror("Error", str(err))
+        finally:
+            connection.close()
+#frontend
+# Create the main application window
+root = tk.Tk()
+root.geometry("400x400")
+root.title("Login")
+
+# Load background image
+background_image = Image.open("wmsbg.png")
+background_image = background_image.resize((1400, 1200), Image.ANTIALIAS)
+background_photo = ImageTk.PhotoImage(background_image)
+
+# Create a canvas and set the background image
+canvas = tk.Canvas(root, width=400, height=400)
+canvas.pack(fill="both", expand=True)
+canvas.create_image(0, 0, image=background_photo, anchor="nw")
+
+# Create a login frame with the dark background and place it in the center
+login_frame = tk.Frame(root, bg=blue_color)
+login_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+# Add widgets to the login frame
+username_label = tk.Label(login_frame, text="Username", bg=blue_color, fg="white", font=('Arial', 12))
+username_label.grid(row=0, column=0, padx=10, pady=10)
+username_entry = tk.Entry(login_frame)
+username_entry.grid(row=0, column=1, padx=10, pady=10)
+
+password_label = tk.Label(login_frame, text="Password", bg=blue_color, fg="white", font=('Arial', 12))
+password_label.grid(row=1, column=0, padx=10, pady=10)
+password_entry = tk.Entry(login_frame, show="*")
+password_entry.grid(row=1, column=1, padx=10, pady=10)
+
+login_button = tk.Button(login_frame, text="Login", command=login, bg=blue_color, fg="white")
+login_button.grid(row=2, column=0, columnspan=2, padx=10, pady=10)
+
+
+root.mainloop()
