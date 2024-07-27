@@ -1,1 +1,1 @@
-# Python Gui based Desktop System
+# Python GuI Based Desktop System
